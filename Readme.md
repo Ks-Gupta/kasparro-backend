@@ -6,30 +6,31 @@ A backend service built using **FastAPI**, **PostgreSQL**, and **Docker** that i
 
 ## 📌 Features
 
-* FastAPI-based REST backend
-* PostgreSQL database
-* Data ingestion from:
+- FastAPI-based REST backend
+- PostgreSQL database
+- Data ingestion from:
 
-  * CoinPaprika public API
-  * CSV file
-* Normalized crypto asset storage
-* Raw data tracking
-* ETL checkpoint tracking
-* Dockerized setup (API + DB)
-* Swagger/OpenAPI documentation
-* Health and monitoring endpoints
+  - CoinPaprika public API
+  - CSV file
+
+- Normalized crypto asset storage
+- Raw data tracking
+- ETL checkpoint tracking
+- Dockerized setup (API + DB)
+- Swagger/OpenAPI documentation
+- Health and monitoring endpoints
 
 ---
 
 ## 🛠 Tech Stack
 
-* **Backend:** FastAPI
-* **Database:** PostgreSQL
-* **ORM:** SQLAlchemy
-* **Data Ingestion:** Requests, CSV
-* **Containerization:** Docker & Docker Compose
-* **Testing:** Pytest
-* **API Docs:** Swagger (OpenAPI)
+- **Backend:** FastAPI
+- **Database:** PostgreSQL
+- **ORM:** SQLAlchemy
+- **Data Ingestion:** Requests, CSV
+- **Containerization:** Docker & Docker Compose
+- **Testing:** Pytest
+- **API Docs:** Swagger (OpenAPI)
 
 ---
 
@@ -63,7 +64,7 @@ A backend service built using **FastAPI**, **PostgreSQL**, and **Docker** that i
 Create a `.env` file in the root directory:
 
 ```env
-DATABASE_URL=postgresql://kasparro:kasparro@db:5432/kasparro_db
+DATABASE_URL=postgresql://[user]:[password]@[host]:[port]/[database_name]
 ```
 
 ---
@@ -78,8 +79,8 @@ docker compose up --build
 
 ### 2️⃣ API will be available at
 
-* **API Base URL:** `http://localhost:8000`
-* **Swagger Docs:** `http://localhost:8000/docs`
+- **API Base URL:** `http://localhost:8000`
+- **Swagger Docs:** `http://localhost:8000/docs`
 
 ---
 
@@ -155,8 +156,8 @@ Response:
 
 ## 🔄 Data Ingestion Flow
 
-* Runs automatically on application startup
-* Steps:
+- Runs automatically on application startup
+- Steps:
 
   1. Fetch data from CoinPaprika API
   2. Load CSV data
@@ -176,10 +177,10 @@ pytest
 
 ## 🧠 Design Notes
 
-* Separation of concerns (API, DB, ETL)
-* Docker-first approach for consistency
-* Simple schema for clarity and performance
-* Swagger enabled for easy API testing
+- Separation of concerns (API, DB, ETL)
+- Docker-first approach for consistency
+- Simple schema for clarity and performance
+- Swagger enabled for easy API testing
 
 ---
 

@@ -2,7 +2,7 @@ from fastapi import FastAPI
 import time
 import uuid
 from app.schemas import Base, CryptoAsset, RawData, ETLCheckpoint
-
+from sqlalchemy.orm import joinedload
 
 from app.db import engine, SessionLocal
 from app.schemas import Base, CryptoAsset
@@ -14,7 +14,6 @@ app = FastAPI(title="Kasparro Backend")
 
 @app.on_event("startup")
 def startup_event():
-    Base.metadata.create_all(bind=engine)
     ingest_coinpaprika()
     ingest_csv() 
 
@@ -36,28 +35,34 @@ def get_data(limit: int = 10, offset: int = 0):
 
     assets = (
         db.query(CryptoAsset)
+        .options(joinedload(CryptoAsset.prices))
         .offset(offset)
         .limit(limit)
         .all()
     )
 
-    db.close()
+    result = []
+    for a in assets:
+        # Get latest price for that asset
+        latest_price = (
+            sorted(a.prices, key=lambda p: p.fetched_at or 0, reverse=True)[0].price_usd
+            if a.prices else None
+        )
 
+        result.append({
+            "symbol": a.symbol,
+            "name": a.name,
+            "latest_price_usd": latest_price,
+        })
+
+    db.close()
     latency_ms = int((time.time() - start_time) * 1000)
 
     return {
         "request_id": request_id,
         "api_latency_ms": latency_ms,
-        "count": len(assets),
-        "data": [
-            {
-                "symbol": a.symbol,
-                "name": a.name,
-                "price_usd": a.price_usd,
-                "source": a.source
-            }
-            for a in assets
-        ]
+        "count": len(result),
+        "data": result
     }
 
 @app.get("/stats")

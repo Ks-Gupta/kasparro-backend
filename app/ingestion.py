@@ -1,119 +1,133 @@
 import requests
 import json
-import uuid
-from datetime import datetime
-
-from app import db
-from app.db import SessionLocal
-from app.schemas import RawData, CryptoAsset
-import logging
 import csv
-from app.schemas import ETLCheckpoint
+import logging
+from datetime import datetime
+from sqlalchemy.orm import Session
 
+from app.db import SessionLocal
+from app.schemas import (
+    CryptoAsset,
+    CryptoPrice,
+    RawData,
+    ETLCheckpoint,
+)
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
+logger = logging.getLogger("app.ingestion")
 
 COINPAPRIKA_URL = "https://api.coinpaprika.com/v1/tickers"
 
-# CoinPaprika Ingestion
-def ingest_coinpaprika():
-    logger.info("Starting CoinPaprika ingestion...")
+
+def get_checkpoint(db: Session, source: str):
+    return db.query(ETLCheckpoint).filter_by(source=source).first()
 
 
-    response = requests.get(COINPAPRIKA_URL, timeout=10)
-    response.raise_for_status()
-
-    data = response.json()
-
-    db = SessionLocal()
-
-    for item in data[:10]:  # only 10 records (safe for beginners)
-        raw = RawData(
-            id=str(uuid.uuid4()),
-            source="coinpaprika",
-            payload=json.dumps(item),
-            ingested_at=datetime.utcnow()
-        )
-        db.add(raw)
-
-        asset = CryptoAsset(
-            symbol=item.get("symbol"),
-            name=item.get("name"),
-            price_usd=item.get("quotes", {}).get("USD", {}).get("price", 0.0),
-            source="coinpaprika",
-            updated_at=datetime.utcnow()
-        )
-        db.merge(asset)  # idempotent write
-
-    db.commit()
-    db.close()
-
-    logger.info("CoinPaprika ingestion completed.")
-
-# CSV Ingestion
-def ingest_csv():
-    logger.info("Starting CSV ingestion...")
-
-    db = SessionLocal()
-
-    # 1️⃣ Check checkpoint
-    last_run = get_last_run(db, "csv")
-    if last_run:
-        logger.info("CSV already ingested, skipping.")
-        db.close()
-        return
-
-    # 2️⃣ Read CSV file
-    with open("data/crypto_prices.csv", newline="") as csvfile:
-        reader = csv.DictReader(csvfile)
-
-        for row in reader:
-            # Store raw data
-            raw = RawData(
-                id=str(uuid.uuid4()),
-                source="csv",
-                payload=json.dumps(row),
-                ingested_at=datetime.utcnow()
-            )
-            db.add(raw)
-
-            # Normalize into unified schema
-            asset = CryptoAsset(
-                symbol=row["symbol"],
-                name=row["name"],
-                price_usd=float(row["price_usd"]),
-                source="csv",
-                updated_at=datetime.utcnow()
-            )
-
-            # Idempotent write (update if exists, insert if not)
-            db.merge(asset)
-
-    # 3️⃣ Update checkpoint AFTER successful ingestion
-    update_last_run(db, "csv")
-
-    db.commit()
-    db.close()
-
-    logger.info("CSV ingestion completed.")
-
-
-# Helper functions for ETL checkpointing
-def get_last_run(db, source: str):
-    checkpoint = db.query(ETLCheckpoint).filter_by(source=source).first()
-    return checkpoint.last_run if checkpoint else None
-
-
-def update_last_run(db, source: str):
-    checkpoint = db.query(ETLCheckpoint).filter_by(source=source).first()
+def update_checkpoint(db: Session, source: str):
+    checkpoint = get_checkpoint(db, source)
     if checkpoint:
         checkpoint.last_run = datetime.utcnow()
     else:
-        checkpoint = ETLCheckpoint(
-            source=source,
-            last_run=datetime.utcnow()
-        )
-        db.add(checkpoint)
+        db.add(ETLCheckpoint(source=source, last_run=datetime.utcnow()))
 
+
+def get_or_create_asset(db: Session, symbol: str, name: str) -> CryptoAsset:
+    asset = db.query(CryptoAsset).filter_by(symbol=symbol).first()
+    if not asset:
+        asset = CryptoAsset(symbol=symbol, name=name)
+        db.add(asset)
+        db.flush()
+    return asset
+
+
+def ingest_coinpaprika():
+    logger.info("Starting CoinPaprika ingestion")
+    db = SessionLocal()
+
+    try:
+        response = requests.get(COINPAPRIKA_URL, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+
+        for item in data[:10]:
+            db.add(RawData(
+                source="coinpaprika",
+                payload=json.dumps(item),
+            ))
+
+            asset = get_or_create_asset(
+                db,
+                symbol=item["symbol"],
+                name=item["name"],
+            )
+
+            price = (
+                db.query(CryptoPrice)
+                .filter_by(asset_id=asset.id, source="coinpaprika")
+                .first()
+            )
+
+            if price:
+                price.price_usd = item["quotes"]["USD"]["price"]
+                price.fetched_at = datetime.utcnow()
+            else:
+                db.add(CryptoPrice(
+                    asset_id=asset.id,
+                    source="coinpaprika",
+                    price_usd=item["quotes"]["USD"]["price"],
+                ))
+
+        update_checkpoint(db, "coinpaprika")
+        db.commit()
+        logger.info("CoinPaprika ingestion completed")
+
+    except Exception:
+        db.rollback()
+        logger.exception("CoinPaprika ingestion failed")
+        raise
+    finally:
+        db.close()
+
+
+def ingest_csv():
+    logger.info("Starting CSV ingestion")
+    db = SessionLocal()
+
+    checkpoint = get_checkpoint(db, "csv")
+    if checkpoint:
+        logger.info("CSV already ingested, skipping")
+        db.close()
+        return
+
+    try:
+        with open("data/crypto_prices.csv") as f:
+            reader = csv.DictReader(f)
+
+            for row in reader:
+                db.add(RawData(
+                    source="csv",
+                    payload=json.dumps(row),
+                ))
+
+                asset = get_or_create_asset(
+                    db,
+                    symbol=row["symbol"],
+                    name=row["name"],
+                )
+
+                db.add(CryptoPrice(
+                    asset_id=asset.id,
+                    source="csv",
+                    price_usd=float(row["price_usd"]),
+                ))
+
+        update_checkpoint(db, "csv")
+        db.commit()
+        logger.info("CSV ingestion completed")
+
+    except Exception:
+        db.rollback()
+        logger.exception("CSV ingestion failed")
+        raise
+    finally:
+        db.close()
