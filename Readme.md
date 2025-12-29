@@ -184,17 +184,7 @@ pytest
 
 ---
 
-## ✅ Assignment Status
-
-✔ All required features implemented
-✔ Dockerized and reproducible
-✔ APIs functional and documented
-✔ Ready for evaluation
-
----
-
 ## 👤 Author
 
 **Khushi Gupta**
-Final Year Engineering Student
-Backend Assignment Submissionpwd
+
